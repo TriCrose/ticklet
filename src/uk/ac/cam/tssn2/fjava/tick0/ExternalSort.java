@@ -1,5 +1,6 @@
 package uk.ac.cam.tssn2.fjava.tick0;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -11,7 +12,7 @@ import java.util.List;
 import java.util.Random;
 
 public class ExternalSort {
-    private static final int INTS_PER_BLOCK = 1000000;
+    private static final int INTS_PER_BLOCK = 2000;
 
     // Quicksort
     private static void quick(int[] array, int start, int end) {
@@ -43,17 +44,43 @@ public class ExternalSort {
         quick(array, right + 1, end);
     }
 
+    // block1 MUST come before block2 in the file for this function to work
+    public static void merge(FilePointer from1, FilePointer from2, FilePointer to, Block block1, Block block2) throws IOException {
+        // Setup pointers
+        from1.seek(block1.position);
+        from2.seek(block2.position);
+        to.seek(block1.position);
+
+        long bytesWritten = 0;
+        while (bytesWritten < block1.size + block2.size) {
+            int block1Int = from1.read();
+            int block2Int = from2.read();
+
+            if (block1Int < block2Int) {
+                to.write(block1Int);
+                from2.rewind(4);
+            } else {
+                to.write(block2Int);
+                from1.rewind(4);
+            }
+
+            bytesWritten += 4;
+        }
+
+        to.flush();
+    }
+
     public static void sort(String f1, String f2) throws FileNotFoundException, IOException {
         // Initialisation
         FilePointer fileA = new FilePointer(f1);
         FilePointer fileB = new FilePointer(f2);
         if (fileA.length() == 0) return;
 
-        // This stores where each block starts
-        List<Integer> blockPositions = new LinkedList<>();
-        blockPositions.add(0);
+        // This stores each block
+        List<Block> blocks = new LinkedList<>();
 
-        // First pass using quicksort
+        /* First: sort the blocks using quicksort */
+
         while (true) {
             // Read as many bytes as we can fit into memory
             int[] block = fileA.read(INTS_PER_BLOCK);
@@ -68,13 +95,50 @@ public class ExternalSort {
             fileB.writeAndFlush(block);
 
             // Now add this block to our list
-            blockPositions.add(blockPositions.get(blockPositions.size() - 1) + block.length);
+            Block newBlock;
+            if (blocks.isEmpty()) {
+                newBlock = new Block(0, block.length * 4);
+            } else {
+                Block lastBlock = blocks.get(blocks.size() - 1);
+                newBlock = new Block(lastBlock.position + lastBlock.size, block.length * 4);
+            }
+            blocks.add(newBlock);
         }
 
-        // Second pass using mergesort
-        while (blockPositions.size() > 1) {
+        /* Second: use mergesort in multiple passes to finish off the sorting */
 
+        FilePointer secondaryFileA = new FilePointer(f1);
+        FilePointer secondaryFileB = new FilePointer(f2);
+        boolean copyingFromA = false;
+
+        while (blocks.size() > 1) {
+            // Do the merge
+            for (int i = 0; i < blocks.size() - 1; i++) {
+                merge(copyingFromA ? fileA : fileB, copyingFromA ? secondaryFileA : secondaryFileB, copyingFromA ? fileB : fileA, blocks.get(i), blocks.get(i + 1));
+                blocks.get(i).size += blocks.get(i + 1).size;
+                blocks.remove(i + 1);
+            }
+
+            // Switch which file we're reading from/to
+            copyingFromA = !copyingFromA;
         }
+
+        /* Finally: copy from B to A if we ended up with B */
+        if (!copyingFromA) {
+            fileB.seek(0);
+            fileA.seek(0);
+
+            while (true) {
+                int[] block = fileB.read(INTS_PER_BLOCK);
+                if (block == null) break;
+                fileA.writeAndFlush(block);
+            }
+        }
+
+        fileA.close();
+        secondaryFileA.close();
+        fileB.close();
+        secondaryFileB.close();
     }
 
     private static String byteToHex(byte b) {
