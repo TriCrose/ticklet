@@ -66,6 +66,10 @@ public class FilePointer {
         r.seek(pos);
     }
 
+    public long getPos() {
+        return pos;
+    }
+
     public void close() throws IOException {
         r.close();
         d.close();

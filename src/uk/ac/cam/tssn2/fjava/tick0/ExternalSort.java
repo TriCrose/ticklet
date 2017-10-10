@@ -1,74 +1,18 @@
 package uk.ac.cam.tssn2.fjava.tick0;
 
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Random;
 
 public class ExternalSort {
     private static final int INTS_PER_BLOCK = 2000;
-
-    // Quicksort
-    private static void quick(int[] array, int start, int end) {
-        if (start >= end) return;
-
-        // Select pivot
-        int pivotIndex = new Random().nextInt(end - start) + start;
-        int temp = array[start];
-        array[start] = array[pivotIndex];
-        array[pivotIndex] = temp;
-
-        // Set up pointers
-        int pivot = array[pivotIndex];
-        int left = start - 1;
-        int right = end + 1;
-
-        // Partition
-        while (true) {
-            do left++; while (array[left] < pivot);
-            do right--; while (array[right] > pivot);
-            if (left >= right) break;
-            int temp2 = array[left];
-            array[left] = array[right];
-            array[right] = temp2;
-        }
-
-        // Recurse
-        quick(array, start, right);
-        quick(array, right + 1, end);
-    }
-
-    // block1 MUST come before block2 in the file for this function to work
-    public static void merge(FilePointer from1, FilePointer from2, FilePointer to, Block block1, Block block2) throws IOException {
-        // Setup pointers
-        from1.seek(block1.position);
-        from2.seek(block2.position);
-        to.seek(block1.position);
-
-        long bytesWritten = 0;
-        while (bytesWritten < block1.size + block2.size) {
-            int block1Int = from1.read();
-            int block2Int = from2.read();
-
-            if (block1Int < block2Int) {
-                to.write(block1Int);
-                from2.rewind(4);
-            } else {
-                to.write(block2Int);
-                from1.rewind(4);
-            }
-
-            bytesWritten += 4;
-        }
-
-        to.flush();
-    }
 
     public static void sort(String f1, String f2) throws FileNotFoundException, IOException {
         // Initialisation
@@ -89,7 +33,7 @@ public class ExternalSort {
             if (block == null) break;
 
             // Sort this block
-            quick(block, 0, block.length - 1);
+            Arrays.sort(block);
 
             // Write it to file B
             fileB.writeAndFlush(block);
@@ -105,40 +49,42 @@ public class ExternalSort {
             blocks.add(newBlock);
         }
 
-        /* Second: use mergesort in multiple passes to finish off the sorting */
+        /* Second: use k-way mergesort in a single pass */
 
-        FilePointer secondaryFileA = new FilePointer(f1);
-        FilePointer secondaryFileB = new FilePointer(f2);
-        boolean copyingFromA = false;
-
-        while (blocks.size() > 1) {
-            // Do the merge
-            for (int i = 0; i < blocks.size() - 1; i++) {
-                merge(copyingFromA ? fileA : fileB, copyingFromA ? secondaryFileA : secondaryFileB, copyingFromA ? fileB : fileA, blocks.get(i), blocks.get(i + 1));
-                blocks.get(i).size += blocks.get(i + 1).size;
-                blocks.remove(i + 1);
-            }
-
-            // Switch which file we're reading from/to
-            copyingFromA = !copyingFromA;
+        fileA.seek(0);
+        List<FilePointer> filePointers = new ArrayList<>();
+        for (Block b : blocks) {
+            FilePointer fp = new FilePointer(f2);
+            fp.seek(b.position);
+            filePointers.add(fp);
         }
 
-        /* Finally: copy from B to A if we ended up with B */
-        if (!copyingFromA) {
-            fileB.seek(0);
-            fileA.seek(0);
+        while (filePointers.size() > 0) {
+            int smallestIntIndex = -1;
+            int smallestInt = Integer.MAX_VALUE;
 
-            while (true) {
-                int[] block = fileB.read(INTS_PER_BLOCK);
-                if (block == null) break;
-                fileA.writeAndFlush(block);
+            for (int i = 0; i < filePointers.size(); i++) {
+                FilePointer fp = filePointers.get(i);
+                if (fp.getPos() >= blocks.get(i).position + blocks.get(i).size) {
+                    filePointers.remove(i);
+                    i--;
+                    continue;
+                }
+
+                int integer = fp.read();
+                fp.rewind(4);
+
+                if (integer <= smallestInt) {
+                    smallestInt = integer;
+                    smallestIntIndex = i;
+                }
+            }
+
+            if (smallestIntIndex != -1) {
+                fileA.write(smallestInt);
+                filePointers.get(smallestIntIndex).read();
             }
         }
-
-        fileA.close();
-        secondaryFileA.close();
-        fileB.close();
-        secondaryFileB.close();
     }
 
     private static String byteToHex(byte b) {
