@@ -1,5 +1,6 @@
 package uk.ac.cam.tssn2.fjava.tick0;
 
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -12,7 +13,7 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class ExternalSort {
-    private static final int INTS_PER_BLOCK = 2000;
+    private static final int INTS_PER_BLOCK = 300000;
 
     public static void sort(String f1, String f2) throws FileNotFoundException, IOException {
         // Initialisation
@@ -67,6 +68,7 @@ public class ExternalSort {
                 FilePointer fp = filePointers.get(i);
                 if (fp.getPos() >= blocks.get(i).position + blocks.get(i).size) {
                     filePointers.remove(i);
+                    blocks.remove(i);
                     i--;
                     continue;
                 }
@@ -85,6 +87,8 @@ public class ExternalSort {
                 filePointers.get(smallestIntIndex).read();
             }
         }
+
+        fileA.flush();
     }
 
     private static String byteToHex(byte b) {
