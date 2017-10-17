@@ -61,11 +61,6 @@ public class FilePointer {
         r.seek(pos);
     }
 
-    public void rewind(int noOfBytes) throws IOException {
-        pos -= noOfBytes;
-        r.seek(pos);
-    }
-
     public long getPos() {
         return pos;
     }

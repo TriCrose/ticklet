@@ -1,6 +1,5 @@
 package uk.ac.cam.tssn2.fjava.tick0;
 
-import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -60,31 +59,33 @@ public class ExternalSort {
             filePointers.add(fp);
         }
 
+        // buffer contains one integer from each block (used for the merge)
+        List<Integer> buffer = new ArrayList<>(blocks.size());
+        for (FilePointer fp : filePointers) buffer.add(fp.read());
+
         while (filePointers.size() > 0) {
-            int smallestIntIndex = -1;
-            int smallestInt = Integer.MAX_VALUE;
+            // Get the smallest number
+            int indexOfSmallest = 0;
+            int smallest = Integer.MAX_VALUE;
 
-            for (int i = 0; i < filePointers.size(); i++) {
-                FilePointer fp = filePointers.get(i);
-                if (fp.getPos() >= blocks.get(i).position + blocks.get(i).size) {
-                    filePointers.remove(i);
-                    blocks.remove(i);
-                    i--;
-                    continue;
-                }
-
-                int integer = fp.read();
-                fp.rewind(4);
-
-                if (integer <= smallestInt) {
-                    smallestInt = integer;
-                    smallestIntIndex = i;
+            for (int i = 0; i < buffer.size(); i++) {
+                if (buffer.get(i) <= smallest) {
+                    smallest = buffer.get(i);
+                    indexOfSmallest = i;
                 }
             }
 
-            if (smallestIntIndex != -1) {
-                fileA.write(smallestInt);
-                filePointers.get(smallestIntIndex).read();
+            fileA.write(smallest);
+
+            FilePointer pointerWithSmallest = filePointers.get(indexOfSmallest);
+            Block blockWithSmallest = blocks.get(indexOfSmallest);
+            if (pointerWithSmallest.getPos() >= blockWithSmallest.position + blockWithSmallest.size) {
+                // If we've already read all of this block then remove it
+                filePointers.remove(indexOfSmallest);
+                blocks.remove(indexOfSmallest);
+                buffer.remove(indexOfSmallest);
+            } else {
+                buffer.set(indexOfSmallest, pointerWithSmallest.read());
             }
         }
 
@@ -122,6 +123,6 @@ public class ExternalSort {
         String f1 = args[0];
         String f2 = args[1];
         sort(f1, f2);
-        System.out.println("The checksum is: " + checkSum(f1) + "\nand the correct checksum is: 468c1c2b4c1b74ddd44ce2ce775fb35c");
+        System.out.println("The checksum is: "+checkSum(f1));
     }
 }
